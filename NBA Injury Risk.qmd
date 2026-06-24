@@ -1,0 +1,429 @@
+---
+title: "NBA Injury Risk"
+author: "Shawntay Brown"
+format: html
+editor: visual
+---
+
+# Introduction
+
+Injuries are an important factor affecting player availability, team performance, and long-term athlete health in the National Basketball Association (NBA). As sports analytics continues to expand, teams and researchers increasingly use data-driven approaches to better understand the factors associated with player injuries and evaluate strategies for injury prevention.
+
+This project examines injury records from NBA players between 2010 and 2020 and integrates those records with player performance and demographic data. By combining injury reports with player statistics, the analysis investigates whether characteristics such as age, playing time, and performance metrics are associated with injury occurrence.
+
+Using data visualization, exploratory data analysis, and statistical modeling techniques in R, this study explores patterns in NBA injuries and evaluates the extent to which player characteristics may help explain injury risk. The findings provide insight into injury trends across the league while highlighting the opportunities and limitations of using statistical methods to study sports injuries.
+
+## Research Questions
+
+This analysis will answer the following questions:
+
+1. What injury patterns are observed among NBA players between 2010 and 2020?
+2. Which injury types occur most frequently?
+3. Are certain player characteristics associated with higher injury occurrence?
+4. Do measures of player workload and performance appear related to injury frequency?
+5. What factors are most useful for explaining variation in injury occurrence among NBA players?
+
+# Data Collection
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(broom)
+
+# Load injury dataset
+injuries <- read_csv(
+  "C:/Users/shawn/Downloads/NBA Injuries/injuries_2010-2020.csv"
+)
+
+# Load NBA datasets
+per_game <- read_csv("nbadataset/Player Per Game.csv")
+
+advanced <- read_csv("nbadataset/Advanced.csv")
+
+career_info <- read_csv("nbadataset/Player Career Info.csv")
+
+totals <- read_csv("nbadataset/Player Totals.csv")
+```
+
+
+# Data Preparation
+
+The injury dataset contains NBA injury reports recorded between 2010 and 2020. Each observation represents an injury-related transaction and includes information on the affected player, team, injury date, and injury description.
+
+To facilitate statistical analysis, injury records were aggregated at the player level using the injured player's name (`Relinquished`). The resulting injury counts were then merged with player performance and demographic datasets obtained from Basketball Reference.
+
+Data preparation involved:
+
+- Standardizing player names across datasets.
+- Aggregating injury records to calculate total injuries per player.
+- Selecting relevant workload, performance, and demographic variables.
+- Merging injury counts with player-level statistics.
+- Removing duplicate observations and handling missing values.
+
+The final analytical dataset was used to investigate relationships between injury occurrence, player workload, and player characteristics.
+
+# Exploratory Data Analysis
+
+
+```{r}
+# Create player-level injury counts
+
+injury_counts <- injuries |>
+  filter(!is.na(Relinquished)) |>
+  group_by(Relinquished) |>
+  summarize(
+    injury_count = n(),
+    .groups = "drop"
+  )
+
+injury_counts |>
+  arrange(desc(injury_count)) |>
+  slice_head(n = 10)
+```
+
+
+```{r}
+# Number of unique injured players
+
+injury_counts |>
+  summarize(
+    n_players = n()
+  )
+```
+
+
+```{r}
+## Most Frequently Injured Players
+
+top_injuries <- injury_counts |>
+  arrange(desc(injury_count)) |>
+  slice_head(n = 10)
+
+top_injuries
+
+ggplot(
+  top_injuries,
+  aes(
+    x = reorder(Relinquished, injury_count),
+    y = injury_count
+  )
+) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top 10 NBA Players by Recorded Injuries (2010-2020)",
+    x = "Player",
+    y = "Number of Recorded Injuries"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+analysis_data <- per_game |>
+  select(
+    player,
+    season,
+    pos,
+    age,
+    g,
+    mp_per_game,
+    pts_per_game,
+    ast_per_game,
+    trb_per_game
+  ) |>
+  left_join(
+    injury_counts,
+    by = c("player" = "Relinquished")
+  ) |>
+  mutate(
+    injury_count = replace_na(injury_count, 0)
+  )
+```
+
+
+```{r}
+analysis_data |>
+  summarize(
+    observations = n(),
+    average_injuries = mean(injury_count)
+  )
+```
+
+
+## Findings
+
+The injury dataset contained records for 1,155 unique NBA players between 2010 and 2020. Injury frequency varied substantially across players. Kevin Love recorded the highest number of injuries (101), followed by Eric Gordon (97) and Derrick Rose (85). The concentration of injuries among a relatively small group of players suggests substantial variability in injury experience across the league.
+
+These results suggest that injuries are not evenly distributed across NBA players. Several players appearing among the most frequently injured experienced recurring injury issues throughout their careers. This preliminary analysis motivates further investigation into whether age, workload, and player performance characteristics are associated with injury occurrence.
+
+
+# Injury Type Analysis
+
+
+```{r}
+injuries_filtered <- injuries |>
+  filter(
+    !str_detect(tolower(Notes),
+      "activated from il|returned to lineup|placed on il$|rest|dnp|illness|flu|virus"
+    )
+  )
+```
+
+
+```{r}
+injuries_clean <- injuries_filtered |>
+  mutate(
+    injury_type = case_when(
+      str_detect(tolower(Notes), "ankle") ~ "Ankle",
+      str_detect(tolower(Notes), "knee|acl|mcl|patella") ~ "Knee",
+      str_detect(tolower(Notes), "foot|toe|plantar|metatarsal|shin|calf") ~ "Foot/Lower Leg",
+      str_detect(tolower(Notes), "achilles") ~ "Achilles",
+      str_detect(tolower(Notes), "hamstring") ~ "Hamstring",
+      str_detect(tolower(Notes), "groin") ~ "Groin",
+      str_detect(tolower(Notes), "back") ~ "Back",
+      str_detect(tolower(Notes), "hip") ~ "Hip",
+      str_detect(tolower(Notes), "shoulder") ~ "Shoulder",
+      str_detect(tolower(Notes), "wrist|hand|finger|thumb") ~ "Hand/Wrist",
+      str_detect(tolower(Notes), "elbow") ~ "Elbow",
+      str_detect(tolower(Notes), "quadriceps|quad|thigh") ~ "Quad/Thigh",
+      str_detect(tolower(Notes), "concussion") ~ "Concussion",
+      TRUE ~ "Miscellaneous"
+    )
+  )
+```
+
+
+```{r}
+injury_summary <- injuries_clean |>
+  count(injury_type, sort = TRUE)
+
+injury_summary
+```
+
+
+```{r}
+ggplot(
+  injury_summary,
+  aes(
+    x = reorder(injury_type, n),
+    y = n
+  )
+) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Most Common NBA Injury Categories",
+    x = "Injury Category",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+
+## Findings
+
+After removing administrative transactions and non-injury events, injury descriptions were grouped into broader anatomical categories.
+
+Knee injuries were the most frequently recorded injury category, accounting for 1,731 observations, followed by ankle injuries with 1,425 observations. Foot and lower-leg injuries were also common, with 860 recorded cases.
+
+These findings suggest that lower-extremity injuries represent a substantial proportion of NBA injury occurrences during the study period. Injuries involving the back, hand/wrist, hamstring, and shoulder were also frequently observed, highlighting the diverse physical demands placed on professional basketball players.
+
+
+# Distribution of Injury Counts
+
+```{r}
+ggplot(
+  injury_counts,
+  aes(x = injury_count)
+) +
+  geom_histogram(bins = 30) +
+  labs(
+    title = "Distribution of Injury Counts",
+    x = "Injury Count",
+    y = "Number of Players"
+  ) +
+  theme_minimal()
+```
+
+
+## Findings
+
+The distribution of injury counts is strongly right-skewed. Most NBA players experienced relatively few recorded injuries during the study period, while a small number of players accumulated substantially higher injury counts. Several players recorded more than 50 injuries, with the highest injury count exceeding 100.
+
+This pattern suggests considerable variability in injury experiences across players and indicates that injury occurrence is concentrated among a relatively small subset of athletes.
+
+
+# Player Characteristics and Injury Frequency
+
+## Age and Injury Count
+
+
+```{r}
+ggplot(
+  analysis_data,
+  aes(
+    x = age,
+    y = injury_count
+  )
+) +
+  geom_jitter(
+    alpha = 0.25,
+    width = 0.25,
+    height = 0.25
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = TRUE
+  ) +
+  labs(
+    title = "Age and Injury Count",
+    x = "Age",
+    y = "Recorded Injuries"
+  ) +
+  theme_minimal()
+```
+
+
+## Findings
+
+The relationship between age and injury count appears to be positive, as indicated by the upward trend in the fitted regression line. Older players generally experienced slightly higher injury counts than younger players.
+
+However, the association is relatively weak, and substantial variability exists across all age groups. Players of similar ages often recorded very different injury counts, suggesting that age alone is insufficient to explain differences in injury frequency.
+
+These findings indicate that other factors, such as workload, playing style, position, and career longevity, may also contribute to injury occurrence.
+
+
+## Minutes Played and Injury Count
+
+```{r}
+ggplot(
+  analysis_data,
+  aes(
+    x = mp_per_game,
+    y = injury_count
+  )
+) +
+  geom_jitter(
+    alpha = 0.25,
+    width = 0.25,
+    height = 0.25
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = TRUE
+  ) +
+  labs(
+    title = "Minutes Played and Injury Count",
+    x = "Minutes Per Game",
+    y = "Recorded Injuries"
+  ) +
+  theme_minimal()
+```
+
+
+## Findings
+
+Minutes played per game was used as a measure of player workload. The fitted regression line suggests a positive relationship between playing time and injury count, indicating that players who receive more playing time may experience slightly higher injury frequencies.
+
+However, considerable variability remains across all levels of playing time. Many players with relatively low workloads recorded high injury counts, while some heavily utilized players experienced relatively few injuries. These findings suggest that workload may contribute to injury occurrence but is unlikely to be the sole factor influencing injury risk.
+
+
+
+
+## Position and Injury Count
+
+```{r}
+ggplot(
+  analysis_data,
+  aes(
+    x = pos,
+    y = injury_count
+  )
+) +
+  geom_boxplot() +
+  labs(
+    title = "Injury Count by Position",
+    x = "Position",
+    y = "Recorded Injuries"
+  ) +
+  theme_minimal()
+```
+
+
+## Findings
+
+The distribution of injury counts was examined across player positions using boxplots. Overall, the distributions appear relatively similar across centers, forwards, and guards.
+
+Although some positions contain players with exceptionally high injury counts, the median injury counts and interquartile ranges do not differ substantially. This suggests that position alone may not be a strong predictor of injury frequency within this dataset.
+
+The presence of numerous outliers across all positions indicates that injury experiences vary considerably among individual players regardless of their primary position.
+
+
+# Regression Analysis
+
+
+```{r}
+injury_model <- lm(
+  injury_count ~
+    age +
+    mp_per_game +
+    pts_per_game +
+    ast_per_game +
+    trb_per_game,
+  data = analysis_data
+)
+
+summary(injury_model)
+```
+
+
+```{r}
+broom::tidy(injury_model)
+```
+
+
+## Findings
+
+A multiple linear regression model was used to examine whether age, playing time, scoring, assists, and rebounds were associated with injury frequency.
+
+The overall model was statistically significant (F = 240.3, p < 0.001), indicating that the predictor variables collectively contributed to explaining variation in injury counts. Age, minutes played per game, points per game, and assists per game were all positively associated with injury count. In contrast, rebounds per game exhibited a small negative association with injury frequency.
+
+Although several predictors were statistically significant, the model explained only a modest proportion of the variability in injury counts (R?? = 0.036). This suggests that many factors influencing NBA injuries were not captured in the available dataset. Injury occurrence is likely influenced by a complex combination of workload, player characteristics, scheduling factors, health history, and random variation.
+
+# Model Diagnostics
+
+
+```{r}
+par(mfrow = c(1,1))
+```
+
+
+```{r}
+plot(injury_model, which = 1)
+```
+
+
+## Findings
+
+The residuals versus fitted values plot suggests that the assumptions of ordinary least squares regression may not be fully satisfied. The residual pattern indicates potential nonlinearity and nonconstant variance across fitted values.
+
+These results are not unexpected because injury count is a discrete count outcome rather than a continuous response variable. Future analyses may benefit from count-based modeling approaches such as Poisson or negative binomial regression, which are specifically designed for count data.
+
+# Limitations
+
+Several limitations should be considered when interpreting the results of this analysis. The injury dataset does not include information on injury severity, recovery time, previous injury history, rest days, travel schedules, or training workload. Additionally, injury counts represent recorded injury events rather than measures of injury severity or impact.
+
+Because many factors that influence injury risk were unavailable, the regression model explained only a small proportion of the variation in injury occurrence. Future analyses incorporating more detailed workload and health information may improve predictive performance.
+
+
+
+# Conclusion
+
+This project examined injury patterns among NBA players using injury records and player performance data collected between 2010 and 2020. Exploratory analyses revealed that knee and ankle injuries were the most common injury categories and that injury frequency varied substantially across players.
+
+Statistical analyses indicated that age, minutes played per game, scoring, and assists were positively associated with injury frequency, while position appeared to have relatively little influence. Although several predictors were statistically significant, the regression model explained only a modest proportion of the variation in injury counts, suggesting that injury occurrence is influenced by many additional factors not captured in the available data.
+
+Future work could incorporate scheduling information, injury history, workload metrics, and advanced machine learning methods to further improve the understanding and prediction of injury risk in professional basketball.
+
